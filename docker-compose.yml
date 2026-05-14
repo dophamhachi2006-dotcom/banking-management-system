@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: banking
+      MYSQL_USER: bank
+      MYSQL_PASSWORD: bank123
+    ports: ["3306:3306"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/00_init_all.sql:/docker-entrypoint-initdb.d/00_init_all.sql:ro
+      - ./database/01_v6_fixes.sql:/docker-entrypoint-initdb.d/01_v6_fixes.sql:ro
+    healthcheck:
+      # Use root to ping (bank user may lack RELOAD privilege)
+      # Also verify the banking database exists and is accessible
+      test: ["CMD", "sh", "-c", "mysqladmin ping -h localhost -uroot -proot123 --silent && mysql -uroot -proot123 -e 'USE banking; SELECT 1;' --silent"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: mysql
+    ports: ["5000:5000"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:5000/api
+    ports: ["5173:5173"]
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

@@ -1,0 +1,22 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Increase npm network timeouts and retries for unreliable networks
+RUN npm config set fetch-timeout 180000 && \
+    npm config set fetch-retry-mintimeout 30000 && \
+    npm config set fetch-retry-maxtimeout 180000 && \
+    npm config set fetch-retries 8 && \
+    npm config set fetch-retry-factor 3
+
+# Copy both package.json AND package-lock.json for deterministic installs
+COPY frontend/package.json frontend/package-lock.json ./
+
+# Use npm ci for faster, reliable, reproducible builds (respects lockfile)
+RUN npm ci --prefer-offline --no-audit --no-fund || \
+    (echo "⚠️  npm ci failed, falling back to npm install..." && \
+     npm install --prefer-offline --no-audit --no-fund)
+
+COPY frontend ./
+EXPOSE 5173
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+

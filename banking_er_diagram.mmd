@@ -1,0 +1,119 @@
+erDiagram
+    BRANCHES ||--o{ EMPLOYEES : "has"
+    EMPLOYEES ||--o| BRANCHES : "manages (ManagerID)"
+    EMPLOYEES ||--o| USERS : "linked to"
+    USERS ||--o{ CUSTOMERS : "creates"
+    USERS ||--o{ TRANSACTIONS : "performs"
+    USERS ||--o{ AUDITLOG : "performs"
+    CUSTOMERS ||--o{ ACCOUNTS : "owns"
+    CUSTOMERS ||--o{ LOANS : "borrows"
+    CUSTOMERS ||--o{ CREDITCARDS : "holds"
+    BRANCHES ||--o{ ACCOUNTS : "manages"
+    ACCOUNTS ||--o{ TRANSACTIONS : "has"
+    ACCOUNTS ||--o{ TRANSACTIONS : "related (transfer)"
+    CREDITCARDS ||--o{ CARDTRANSACTIONS : "has"
+
+    BRANCHES {
+        INT BranchID PK
+        VARCHAR BranchName
+        VARCHAR Address
+        VARCHAR City
+        VARCHAR Phone
+        INT ManagerID FK
+        TIMESTAMP CreatedAt
+    }
+    EMPLOYEES {
+        INT EmployeeID PK
+        VARCHAR FullName
+        VARCHAR Email UK
+        VARCHAR Phone
+        VARCHAR Position
+        INT BranchID FK
+        DECIMAL Salary
+        DATE HiredAt
+        ENUM Status
+    }
+    USERS {
+        INT UserID PK
+        VARCHAR Username UK
+        VARCHAR PasswordHash
+        ENUM Role "manager,teller,auditor"
+        INT EmployeeID FK
+        BOOLEAN IsActive
+        TIMESTAMP LastLoginAt
+    }
+    CUSTOMERS {
+        INT CustomerID PK
+        VARCHAR FullName
+        VARCHAR Email UK
+        VARCHAR Phone
+        DATE DateOfBirth
+        VARCHAR Address
+        VARCHAR City
+        VARCHAR IDNumber UK
+        INT CreatedBy FK
+    }
+    ACCOUNTS {
+        INT AccountID PK
+        VARCHAR AccountNumber UK
+        INT CustomerID FK
+        INT BranchID FK
+        ENUM AccountType "savings,checking,fixed"
+        DECIMAL Balance
+        CHAR Currency
+        ENUM Status
+        DATE OpenedAt
+    }
+    TRANSACTIONS {
+        BIGINT TransactionID PK
+        INT AccountID FK
+        INT RelatedAccount FK
+        ENUM TxType "deposit,withdrawal,transfer,fee,interest"
+        DECIMAL Amount
+        DECIMAL BalanceAfter
+        VARCHAR Description
+        INT PerformedBy FK
+        ENUM Status
+        TIMESTAMP CreatedAt
+    }
+    LOANS {
+        INT LoanID PK
+        INT CustomerID FK
+        DECIMAL Principal
+        DECIMAL InterestRate
+        INT TermMonths
+        DECIMAL MonthlyPayment
+        DECIMAL OutstandingBal
+        ENUM Status
+        DATE StartDate
+        DATE EndDate
+    }
+    CREDITCARDS {
+        INT CardID PK
+        VARCHAR CardNumber UK
+        INT CustomerID FK
+        DECIMAL CreditLimit
+        DECIMAL OutstandingBal
+        DATE ExpiryDate
+        ENUM Status
+    }
+    CARDTRANSACTIONS {
+        BIGINT ID PK
+        INT CardID FK
+        DECIMAL Amount
+        VARCHAR Merchant
+        VARCHAR Description
+        ENUM Status
+        TIMESTAMP CreatedAt
+    }
+    AUDITLOG {
+        BIGINT AuditID PK
+        VARCHAR TableName
+        VARCHAR RecordID
+        ENUM Action "INSERT,UPDATE,DELETE"
+        JSON OldData
+        JSON NewData
+        INT PerformedBy FK
+        VARCHAR IpAddress
+        TIMESTAMP CreatedAt
+    }

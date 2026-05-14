@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# Cài thêm default-mysql-client để có mysqladmin
+RUN apt-get update && apt-get install -y default-mysql-client && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# Faker needed for data generation
+RUN pip install --no-cache-dir faker
+
+COPY backend ./backend
+COPY core ./core
+COPY data_generation ./data_generation
+ENV PYTHONPATH=/app
+EXPOSE 5000
+
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+CMD ["/docker-entrypoint.sh"]
+

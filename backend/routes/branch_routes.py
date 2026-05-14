@@ -2,6 +2,7 @@ from flask import Blueprint, request
 from core.db_connection import get_cursor
 from core.auth import auth_required
 from backend.api_response import ok, fail, paginate
+from backend.services.audit_service import log_action
 
 bp = Blueprint("branches", __name__)
 
@@ -74,6 +75,9 @@ def create_branch():
                     (d["BranchName"], d.get("Address"), d.get("City"),
                      d.get("Phone"), d.get("ManagerID")))
         new_id = cur.lastrowid
+    log_action("NEW_BRANCH", "Branches", new_id,
+               new={"BranchName": d.get("BranchName"), "City": d.get("City"),
+                    "ManagerID": d.get("ManagerID")})
     return ok({"BranchID": new_id}, "Created", 201)
 
 @bp.put("/<int:bid>")
@@ -88,6 +92,7 @@ def update_branch(bid):
     params.append(bid)
     with get_cursor(commit=True) as cur:
         cur.execute(f"UPDATE Branches SET {','.join(sets)} WHERE BranchID=%s", params)
+    log_action("UPDATE_BRANCH", "Branches", bid, new={k: d[k] for k in d})
     return ok(None, "Updated")
 
 @bp.delete("/<int:bid>")
@@ -105,4 +110,5 @@ def delete_branch(bid):
                 409,
             )
         raise
+    log_action("DELETE_BRANCH", "Branches", bid)
     return ok(None, "Deleted")

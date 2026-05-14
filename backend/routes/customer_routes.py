@@ -4,6 +4,7 @@ from core.auth import auth_required
 from core.validators import require, is_email
 from backend.api_response import ok, fail, paginate
 from backend.utils.query_builder import build_filters, build_order, merge_where
+from backend.services.audit_service import log_action
 
 bp = Blueprint("customers", __name__)
 
@@ -153,6 +154,9 @@ def create_customer():
         )
         new_id = cur.lastrowid
 
+    log_action("NEW_CUSTOMER", "Customers", new_id,
+               new={"FullName": d.get("FullName"), "Email": d.get("Email"),
+                    "Phone": d.get("Phone"), "City": d.get("City")})
     return ok({"CustomerID": new_id}, "Created", 201)
 
 
@@ -186,6 +190,7 @@ def update_customer(cid):
             params,
         )
 
+    log_action("UPDATE_CUSTOMER", "Customers", cid, new={k: d[k] for k in d})
     return ok(None, "Updated")
 
 
@@ -194,4 +199,5 @@ def update_customer(cid):
 def delete_customer(cid):
     with get_cursor(commit=True) as cur:
         cur.execute("DELETE FROM Customers WHERE CustomerID=%s", (cid,))
+    log_action("DELETE_CUSTOMER", "Customers", cid)
     return ok(None, "Deleted")

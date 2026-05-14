@@ -5,6 +5,7 @@ from core.db_connection import get_cursor
 from core.auth import auth_required
 from backend.api_response import ok, fail, paginate
 from backend.utils.query_builder import build_filters, build_order, merge_where
+from backend.services.audit_service import log_action
 
 bp = Blueprint("cards", __name__)
 
@@ -31,7 +32,6 @@ def list_cards():
             where.append("(cc.CardNumber LIKE %s OR c.FullName LIKE %s)")
             params += [like, like]
 
-    # HasTransactions handled separately (sub-query EXISTS)
     has_tx = request.args.get("HasTransactions_eq")
     if has_tx is not None and has_tx != "":
         truthy = str(has_tx).lower() in ("true", "1", "yes")
@@ -44,7 +44,6 @@ def list_cards():
                 "NOT EXISTS (SELECT 1 FROM CardTransactions ct WHERE ct.CardID = cc.CardID)"
             )
 
-    # --- dynamic filters ---
     allowed_fields = {
         "CreditLimit": "numeric",
         "OutstandingBal": "numeric",
@@ -88,7 +87,6 @@ def list_cards():
             )
             rows = cur.fetchall()
         except Exception as exc:
-            # CardTransactions table may not exist yet -> retry without HasTransactions
             if "CardTransactions" in str(exc):
                 return fail(
                     "HasTransactions filter requires CardTransactions table. "
@@ -157,16 +155,34 @@ def card_transactions(cid):
 def issue_card():
     d = request.get_json(silent=True) or {}
     d.pop("CardID", None)
+
+    # --- validate required fields ---
     needed = ["CustomerID", "CreditLimit"]
     if any(d.get(k) in (None, "") for k in needed):
         return fail("Missing fields", 400, needed)
 
+    # --- validate CustomerID is a real int ---
+    try:
+        customer_id = int(d["CustomerID"])
+    except (TypeError, ValueError):
+        return fail(f"Invalid CustomerID: {d.get('CustomerID')!r}", 400)
+
+    # --- validate CreditLimit ---
     try:
         credit_limit = float(d["CreditLimit"])
         if credit_limit <= 0:
             return fail("CreditLimit must be positive", 400)
     except (TypeError, ValueError):
         return fail("Invalid CreditLimit", 400)
+
+    # --- ensure the customer actually exists (prevents FK 1452) ---
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT CustomerID FROM Customers WHERE CustomerID=%s",
+            (customer_id,),
+        )
+        if not cur.fetchone():
+            return fail(f"Customer #{customer_id} does not exist", 404)
 
     card_number = d.get("CardNumber")
     if not card_number:
@@ -184,13 +200,17 @@ def issue_card():
                (CardNumber,CustomerID,CreditLimit,OutstandingBal,ExpiryDate,Status)
                VALUES (%s,%s,%s,%s,%s,%s)""",
             (
-                card_number, d["CustomerID"], credit_limit,
+                card_number, customer_id, credit_limit,
                 d.get("OutstandingBal", 0), expiry,
                 d.get("Status", "active"),
             ),
         )
         new_id = cur.lastrowid
 
+    log_action("ISSUE_CARD", "CreditCards", new_id,
+               new={"CardNumber": card_number, "CustomerID": customer_id,
+                    "CreditLimit": credit_limit, "ExpiryDate": expiry,
+                    "Status": d.get("Status", "active")})
     return ok({"CardID": new_id, "CardNumber": card_number}, "Card issued", 201)
 
 
@@ -205,4 +225,5 @@ def set_status(cid):
             "UPDATE CreditCards SET Status=%s WHERE CardID=%s",
             (d["Status"], cid),
         )
+    log_action("SET_CARD_STATUS", "CreditCards", cid, new={"Status": d["Status"]})
     return ok(None, f"Card status updated to {d['Status']}")

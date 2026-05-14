@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { transactionService } from "@/services";
+import { transactionService, accountService } from "@/services";
 import { txAmountSchema, transferSchema } from "@/lib/validations";
 import { SkeletonTable } from "@/components/Skeleton";
 import { Pagination } from "@/components/Pagination";
@@ -26,6 +26,16 @@ export function TransactionsPage() {
     queryKey: ["tx", page, filters, dyn.queryParams],
     queryFn: () => transactionService.list({ page, size: 20, ...filters, ...dyn.queryParams }),
   });
+
+  // Load all active accounts for the dropdowns inside the deposit/withdraw/transfer modals.
+  // This prevents the user from typing a non-existent AccountID (which causes
+  // MySQL FK error 1452 on the Transactions table).
+  const accounts = useQuery({
+    queryKey: ["accounts-for-tx"],
+    queryFn: () => accountService.list({ page: 1, size: 500 }),
+    enabled: !!modal,
+  });
+  const accountOptions: any[] = (accounts.data as any)?.items ?? [];
 
   const dynFields: FieldDef[] = [
     { field: "Amount", label: "Amount", type: "numeric" },
@@ -55,10 +65,40 @@ export function TransactionsPage() {
       if (modal === "withdraw") return transactionService.withdraw(d);
       return transactionService.transfer(d);
     },
-    onSuccess: () => { toast.success("Done"); setModal(null); qc.invalidateQueries({ queryKey: ["tx"] }); },
+    onSuccess: () => {
+      toast.success("Done");
+      setModal(null);
+      qc.invalidateQueries({ queryKey: ["tx"] });
+    },
+    onError: (err: any) => {
+      // Surface backend validation messages instead of swallowing them.
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Transaction failed";
+      toast.error(msg);
+    },
   });
 
   const f = useForm({ resolver: zodResolver(modal === "transfer" ? transferSchema : txAmountSchema) });
+
+  // Coerce numeric ID/amount fields before submit (HTML inputs always return strings).
+  const onSubmit = (d: any) => {
+    const payload: any = { ...d };
+    if (modal === "transfer") {
+      payload.FromAccountID = Number(d.FromAccountID);
+      payload.ToAccountID   = Number(d.ToAccountID);
+    } else {
+      payload.AccountID = Number(d.AccountID);
+    }
+    payload.Amount = Number(d.Amount);
+    if (!payload.Amount || payload.Amount <= 0) {
+      toast.error("Amount must be a positive number");
+      return;
+    }
+    action.mutate(payload);
+  };
 
   return (
     <div className="space-y-4">
@@ -118,17 +158,53 @@ export function TransactionsPage() {
       </div>
 
       <Modal open={!!modal} onClose={() => setModal(null)} title={modal ?? ""}>
-        <form onSubmit={f.handleSubmit((d:any) => action.mutate(d))} className="space-y-3">
+        <form onSubmit={f.handleSubmit(onSubmit)} className="space-y-3">
           {modal === "transfer" ? (
             <>
-              <div><label className="label">From AccountID</label><input className="input" {...f.register("FromAccountID")}/></div>
-              <div><label className="label">To AccountID</label><input className="input" {...f.register("ToAccountID")}/></div>
+              <div>
+                <label className="label">From Account</label>
+                <select className="input" {...f.register("FromAccountID")}>
+                  <option value="">Select source account…</option>
+                  {accountOptions.map((a) => (
+                    <option key={a.AccountID} value={a.AccountID}>
+                      #{a.AccountID} · {a.AccountNumber} · {a.CustomerName ?? ""} ({fmtMoney(a.Balance ?? 0)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">To Account</label>
+                <select className="input" {...f.register("ToAccountID")}>
+                  <option value="">Select destination account…</option>
+                  {accountOptions.map((a) => (
+                    <option key={a.AccountID} value={a.AccountID}>
+                      #{a.AccountID} · {a.AccountNumber} · {a.CustomerName ?? ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </>
           ) : (
-            <div><label className="label">AccountID</label><input className="input" {...f.register("AccountID")}/></div>
+            <div>
+              <label className="label">Account</label>
+              <select className="input" {...f.register("AccountID")}>
+                <option value="">Select account…</option>
+                {accountOptions.map((a) => (
+                  <option key={a.AccountID} value={a.AccountID}>
+                    #{a.AccountID} · {a.AccountNumber} · {a.CustomerName ?? ""} ({fmtMoney(a.Balance ?? 0)})
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
-          <div><label className="label">Amount</label><input className="input" {...f.register("Amount")}/></div>
-          <div><label className="label">Description</label><input className="input" {...f.register("Description")}/></div>
+          <div>
+            <label className="label">Amount</label>
+            <input className="input" type="number" step="0.01" min="0.01" {...f.register("Amount")}/>
+          </div>
+          <div>
+            <label className="label">Description</label>
+            <input className="input" {...f.register("Description")}/>
+          </div>
           <button className="btn-primary w-full" disabled={action.isPending}>
             {action.isPending ? "Processing..." : "Submit"}
           </button>

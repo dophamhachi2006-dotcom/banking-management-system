@@ -5,6 +5,7 @@ from core.db_connection import get_cursor
 from core.auth import auth_required
 from backend.api_response import ok, fail, paginate
 from backend.utils.query_builder import build_filters, build_order, merge_where
+from backend.services.audit_service import log_action
 
 bp = Blueprint("accounts", __name__)
 
@@ -164,6 +165,10 @@ def create_account():
             ),
         )
         new_id = cur.lastrowid
+    log_action("OPEN_ACCOUNT", "Accounts", new_id,
+               new={"AccountNumber": acc_no, "CustomerID": d["CustomerID"],
+                    "BranchID": d["BranchID"], "AccountType": acc_type,
+                    "Balance": balance})
     return ok({"AccountID": new_id, "AccountNumber": acc_no}, "Account opened", 201)
 
 
@@ -199,6 +204,8 @@ def set_status(aid):
         cur.execute(
             "UPDATE Accounts SET Status=%s WHERE AccountID=%s", (status, aid)
         )
+    log_action("SET_ACCOUNT_STATUS", "Accounts", aid,
+               old={"Status": current_status}, new={"Status": status})
     return ok(None, f"Account status updated to {status}")
 
 
@@ -217,4 +224,5 @@ def close_account(aid):
         cur.execute(
             "UPDATE Accounts SET Status='closed' WHERE AccountID=%s", (aid,)
         )
+    log_action("CLOSE_ACCOUNT", "Accounts", aid, new={"Status": "closed"})
     return ok(None, "Account closed")

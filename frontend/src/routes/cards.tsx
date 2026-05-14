@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { cardService } from "@/services";
+import { cardService, customerService } from "@/services";
 import { cardSchema } from "@/lib/validations";
 import { Modal } from "@/components/Modal";
 import { Pagination } from "@/components/Pagination";
@@ -28,6 +28,15 @@ export function CardsPage() {
     queryKey: ["cards", page, q, queryParams],
     queryFn: () => cardService.list({ page, size: 20, q, ...queryParams }),
   });
+
+  // Load customers for the "Issue card" dropdown — prevents the user from
+  // typing a non-existent CustomerID (which causes MySQL FK 1452).
+  const customers = useQuery({
+    queryKey: ["customers-for-cards"],
+    queryFn: () => customerService.list({ page: 1, size: 500 }),
+    enabled: openForm,
+  });
+  const customerOptions: any[] = (customers.data as any)?.items ?? [];
 
   const fields: FieldDef[] = [
     { field: "CreditLimit", label: "Limit", type: "numeric" },
@@ -55,6 +64,14 @@ export function CardsPage() {
       setOpenForm(false);
       qc.invalidateQueries({ queryKey: ["cards"] });
     },
+    onError: (err: any) => {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to issue card";
+      toast.error(msg);
+    },
   });
 
   const setStatus = useMutation({
@@ -68,6 +85,23 @@ export function CardsPage() {
 
   const f = useForm({ resolver: zodResolver(cardSchema) });
   const items: any[] = (list.data as any)?.items ?? [];
+
+  const onSubmit = (d: any) => {
+    const payload: any = {
+      ...d,
+      CustomerID: Number(d.CustomerID),
+      CreditLimit: Number(d.CreditLimit),
+    };
+    if (!payload.CustomerID) {
+      toast.error("Please select a customer");
+      return;
+    }
+    if (!payload.CreditLimit || payload.CreditLimit <= 0) {
+      toast.error("Credit limit must be a positive number");
+      return;
+    }
+    create.mutate(payload);
+  };
 
   return (
     <div className="space-y-4">
@@ -175,17 +209,23 @@ export function CardsPage() {
       </div>
 
       <Modal open={openForm} onClose={() => setOpenForm(false)} title="Issue new credit card">
-        <form
-          onSubmit={f.handleSubmit((d: any) => create.mutate(d))}
-          className="space-y-3"
-        >
+        <form onSubmit={f.handleSubmit(onSubmit)} className="space-y-3">
           <div>
-            <label className="label">CustomerID</label>
-            <input className="input" type="number" {...f.register("CustomerID")} />
+            <label className="label">Customer</label>
+            <select className="input" {...f.register("CustomerID")}>
+              <option value="">
+                {customers.isLoading ? "Loading customers…" : "Select customer…"}
+              </option>
+              {customerOptions.map((c) => (
+                <option key={c.CustomerID} value={c.CustomerID}>
+                  #{c.CustomerID} · {c.FullName ?? c.Name ?? ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="label">Credit limit</label>
-            <input className="input" type="number" step="0.01" {...f.register("CreditLimit")} />
+            <input className="input" type="number" step="0.01" min="0.01" {...f.register("CreditLimit")} />
           </div>
           <div>
             <label className="label">Expiry date</label>

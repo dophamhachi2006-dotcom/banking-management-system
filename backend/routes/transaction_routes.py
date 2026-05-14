@@ -7,11 +7,47 @@ from backend.services.transaction_service import (
     do_deposit, do_withdraw, do_transfer
 )
 from backend.services.fraud_service import detect_for_account
+from backend.services.audit_service import log_action
 from backend.utils.query_builder import build_filters, build_order, merge_where
 
 bp = Blueprint("transactions", __name__)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _coerce_account_id(value, field_name="AccountID"):
+    """Validate and cast an AccountID to int. Raises ValueError on bad input."""
+    if value in (None, "", 0, "0"):
+        raise ValueError(f"{field_name} is required")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid {field_name}: {value!r}")
+
+
+def _ensure_account_exists(cur, account_id, field_name="AccountID",
+                           require_active=True):
+    """Look up an account, return the row, or raise ValueError with a
+    user-friendly message if it doesn't exist / isn't usable."""
+    cur.execute(
+        "SELECT AccountID, Status FROM Accounts WHERE AccountID=%s",
+        (account_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"{field_name} #{account_id} does not exist")
+    if require_active and row.get("Status") and row["Status"] != "active":
+        raise ValueError(
+            f"{field_name} #{account_id} is {row['Status']}, "
+            f"cannot be used for transactions"
+        )
+    return row
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 @bp.get("")
 @auth_required()
 def list_tx():
@@ -56,8 +92,6 @@ def list_tx():
             )
             params += [like, like, like]
 
-    # --- dynamic filters ---
-    # Accept both TxType and TransactionType from clients.
     allowed_fields = {
         "Amount": "numeric",
         "BalanceAfter": "numeric",
@@ -65,7 +99,6 @@ def list_tx():
         "TransactionType": "string",
     }
     extra_where, extra_params = build_filters(args, allowed_fields, table_alias="t")
-    # Map TransactionType -> TxType in SQL produced by build_filters
     extra_where = extra_where.replace("t.TransactionType", "t.TxType")
     where_sql, params = merge_where(where, params, extra_where, extra_params)
 
@@ -106,10 +139,16 @@ def list_tx():
 def deposit():
     d = request.get_json(silent=True) or {}
     try:
+        acc_id = _coerce_account_id(d.get("AccountID"))
+        with get_cursor() as cur:
+            _ensure_account_exists(cur, acc_id)
         tx_id, balance = do_deposit(
-            d.get("AccountID"), d.get("Amount"),
+            acc_id, d.get("Amount"),
             g.current_user["uid"], d.get("Description", "Deposit")
         )
+        log_action("DEPOSIT", "Transactions", tx_id,
+                   new={"AccountID": acc_id, "Amount": float(d.get("Amount") or 0),
+                        "BalanceAfter": balance, "Description": d.get("Description")})
         return ok({"TransactionID": tx_id, "Balance": balance}, "Deposit successful")
     except ValueError as e:
         return fail(str(e), 400)
@@ -120,10 +159,16 @@ def deposit():
 def withdraw():
     d = request.get_json(silent=True) or {}
     try:
+        acc_id = _coerce_account_id(d.get("AccountID"))
+        with get_cursor() as cur:
+            _ensure_account_exists(cur, acc_id)
         tx_id, balance = do_withdraw(
-            d.get("AccountID"), d.get("Amount"),
+            acc_id, d.get("Amount"),
             g.current_user["uid"], d.get("Description", "Withdrawal")
         )
+        log_action("WITHDRAW", "Transactions", tx_id,
+                   new={"AccountID": acc_id, "Amount": float(d.get("Amount") or 0),
+                        "BalanceAfter": balance, "Description": d.get("Description")})
         return ok({"TransactionID": tx_id, "Balance": balance}, "Withdrawal successful")
     except ValueError as e:
         return fail(str(e), 400)
@@ -134,11 +179,22 @@ def withdraw():
 def transfer():
     d = request.get_json(silent=True) or {}
     try:
+        from_id = _coerce_account_id(d.get("FromAccountID"), "FromAccountID")
+        to_id   = _coerce_account_id(d.get("ToAccountID"),   "ToAccountID")
+        if from_id == to_id:
+            return fail("Cannot transfer to the same account", 400)
+        with get_cursor() as cur:
+            _ensure_account_exists(cur, from_id, "FromAccountID")
+            _ensure_account_exists(cur, to_id,   "ToAccountID")
         tx_id = do_transfer(
-            d.get("FromAccountID"), d.get("ToAccountID"),
+            from_id, to_id,
             d.get("Amount"), g.current_user["uid"],
             d.get("Description", "Transfer")
         )
+        log_action("TRANSFER", "Transactions", tx_id,
+                   new={"FromAccountID": from_id, "ToAccountID": to_id,
+                        "Amount": float(d.get("Amount") or 0),
+                        "Description": d.get("Description")})
         return ok({"TransactionID": tx_id}, "Transfer successful")
     except ValueError as e:
         return fail(str(e), 400)

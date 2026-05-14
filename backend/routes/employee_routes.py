@@ -4,6 +4,7 @@ from core.auth import auth_required
 from core.validators import require, is_email
 from backend.api_response import ok, fail, paginate
 from backend.utils.query_builder import build_filters, build_order, merge_where
+from backend.services.audit_service import log_action
 
 bp = Blueprint("employees", __name__)
 
@@ -85,6 +86,9 @@ def create_employee():
              d.get("BranchID"), d.get("Salary",0), d.get("HiredAt"),
              d.get("Status","active")))
         new_id = cur.lastrowid
+    log_action("NEW_EMPLOYEE", "Employees", new_id,
+               new={"FullName": d.get("FullName"), "Email": d.get("Email"),
+                    "Position": d.get("Position"), "BranchID": d.get("BranchID")})
     return ok({"EmployeeID": new_id}, "Created", 201)
 
 @bp.put("/<int:eid>")
@@ -99,6 +103,7 @@ def update_employee(eid):
     params.append(eid)
     with get_cursor(commit=True) as cur:
         cur.execute(f"UPDATE Employees SET {','.join(sets)} WHERE EmployeeID=%s", params)
+    log_action("UPDATE_EMPLOYEE", "Employees", eid, new={k: d[k] for k in d})
     return ok(None, "Updated")
 
 @bp.delete("/<int:eid>")
@@ -106,4 +111,5 @@ def update_employee(eid):
 def delete_employee(eid):
     with get_cursor(commit=True) as cur:
         cur.execute("DELETE FROM Employees WHERE EmployeeID=%s", (eid,))
+    log_action("DELETE_EMPLOYEE", "Employees", eid)
     return ok(None, "Deleted")

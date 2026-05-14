@@ -5,6 +5,7 @@ from core.db_connection import get_cursor
 from core.auth import auth_required
 from backend.api_response import ok, fail, paginate
 from backend.utils.query_builder import build_filters, build_order, merge_where
+from backend.services.audit_service import log_action
 
 bp = Blueprint("loans", __name__)
 
@@ -131,6 +132,10 @@ def create_loan():
             ),
         )
         new_id = cur.lastrowid
+    log_action("NEW_LOAN", "Loans", new_id,
+               new={"CustomerID": d["CustomerID"], "Principal": principal,
+                    "InterestRate": rate, "TermMonths": term,
+                    "StartDate": start})
     return ok(
         {"LoanID": new_id, "MonthlyPayment": _monthly_payment(principal, rate, term)},
         "Loan created", 201,
@@ -164,6 +169,9 @@ def pay_loan(lid):
             "UPDATE Loans SET OutstandingBal=%s, Status=%s WHERE LoanID=%s",
             (new_out, new_status, lid),
         )
+    log_action("LOAN_PAYMENT", "Loans", lid,
+               old={"OutstandingBal": outstanding},
+               new={"Amount": amount, "OutstandingBal": new_out, "Status": new_status})
     return ok(
         {"LoanID": lid, "Outstanding": new_out, "Status": new_status},
         "Payment recorded",
@@ -211,4 +219,5 @@ def set_status(lid):
         cur.execute(
             "UPDATE Loans SET Status=%s WHERE LoanID=%s", (d["Status"], lid)
         )
+    log_action("SET_LOAN_STATUS", "Loans", lid, new={"Status": d["Status"]})
     return ok(None, "Updated")

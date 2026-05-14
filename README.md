@@ -331,3 +331,5 @@ npx playwright test --ui    # visual mode
 ## 📄 License
 
 MIT — for academic/educational use.
+=======
+# banking-management-system

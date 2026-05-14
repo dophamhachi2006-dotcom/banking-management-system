@@ -24,7 +24,7 @@
 |---|---|
 | **GitHub Repository** | [banking-management-system](https://github.com/dophamhachi2006-dotcom/banking-management-system.git) |
 | **Google Drive (Source + Demo)** | [Open Drive](https://drive.google.com/drive/folders/1iEXz_0lLntYiUt0YUI0Rfg2ABhlRzKXM?usp=sharing) |
-| **Demo Video** | [Watch on Drive](https://drive.google.com/drive/folders/1iEXz_0lLntYiUt0YUI0Rfg2ABhlRzKXM?usp=sharing) |
+| **Demo Video (YouTube)** | [Watch on YouTube](https://youtu.be/dsyAgmjXpu8) |
 
 ---
 
@@ -429,6 +429,7 @@ npx playwright test --ui    # visual mode
 - [User Manual](docs/user_manual.md)
 - [ER Diagram](docs/er_diagram.png)
 - [Google Drive (source + video)](https://drive.google.com/drive/folders/1iEXz_0lLntYiUt0YUI0Rfg2ABhlRzKXM?usp=sharing)
+- [Demo Video (YouTube)](https://youtu.be/dsyAgmjXpu8)
 
 ---
 
